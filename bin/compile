@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# This buildpacks allows to run custom Bash file on the build dyno.
+# NOTE: This buildpack has been modified to exit in case of errors as the
+#       original continues building the image despite the webpack being broken.
+#
+# Usage:
+#
+# Run a single file during the build:
+#     heroku config:set BUILDPACK_RUN=file.sh
+#     git push heroku master
+#
+# Multiple files:
+#     heroku config:set BUILDPACK_RUN=file1.sh:file2.sh:file3.sh
+#     git push heroku master
+#
+# With arguments:
+#     heroku config:set BUILDPACK_RUN="file1.sh one two:file2.sh 'Hello World'"
+#     git push heroku master
+#
+# If BUILDPACK_RUN is not set, the file buildpack-run.sh is assumed:
+#     vim buildpack-run.sh        
+#     git push heroku master
+# 
+# The working directory for the executed files is the app root directory.
+#
+# ---
+#
+# The 'compile' script is executed by the slug compiler with three arguments:
+#   $1: build_dir, location of your app directory on the build dyno
+#   $2: cache_dir, directory on the build dyno that persists between builds
+#   $3: env_dir, directory holding all the app's config vars as files
+#
+# More information here: https://devcenter.heroku.com/articles/buildpack-api
+#
+# Daniel Weibel <daniel@weibeld.net> March 2015 - April 2018
+#------------------------------------------------------------------------------#
+set -ex
+
+# Indent text by seven spaces
+i() {
+  sed 's/^/       /'
+}
+
+# These vars can be accessed in the user-supplied scripts
+export BUILD_DIR=$1
+export CACHE_DIR=$2
+export ENV_DIR=$3
+
+cd "$BUILD_DIR"
+
+# Get run specification (either BUILDPACK_RUN var or buildpack-run.sh file)
+if [[ -f "$ENV_DIR/BUILDPACK_RUN" ]]; then
+  RUN=$(cat "$ENV_DIR/BUILDPACK_RUN")
+elif [[ -f ./buildpack-run.sh ]]; then
+  RUN=./buildpack-run.sh
+else
+  echo "Error: can't apply buildpack, because neither the BUILDPACK_RUN" | i
+  echo "config variable, nor the file buildpack-run.sh exists." | i
+  echo
+  exit 1
+fi
+
+# Run each of the colon-delimited files (with optional args) with bash
+IFS=':' cmds=($RUN)
+for c in ${cmds[@]}; do
+  echo "Running: bash $c" | sed 's/^/-----> /'
+  eval bash $c
+done
